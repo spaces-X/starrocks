@@ -105,6 +105,18 @@ struct TabletReaderParams {
 
     VectorSearchOptionPtr vector_search_option = nullptr;
 
+    // BM25 score(): when set, the GIN/tantivy MATCH predicate runs in scoring
+    // mode and the per-row score is materialized into the bm25_score_slot_id
+    // output column (synthetic column id = num_columns()). Mirrors the vector path.
+    bool use_bm25_score = false;
+    int32_t bm25_score_slot_id = 0;
+    int32_t bm25_score_column_id = 0;
+    // Name of the synthetic score column as assigned by the FE rewrite rule
+    // (e.g. "__bm25_score_<id>"). Threaded to the SegmentIterator so the
+    // appended chunk column carries the same name the output slot expects,
+    // mirroring vector_distance_column_name.
+    std::string bm25_score_column_name;
+
     TTableSampleOptions sample_options;
     bool enable_join_runtime_filter_pushdown = false;
 

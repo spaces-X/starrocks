@@ -110,6 +110,10 @@ private:
     std::string _vector_distance_column_name;
     SlotId _vector_slot_id;
 
+    // BM25 score(): mirror of the vector slot, for the synthetic score column.
+    bool _use_bm25_score = false;
+    SlotId _bm25_score_slot_id = 0;
+
     std::shared_ptr<starrocks::TableMetrics> _table_metrics;
 
     // The following are profile meatures

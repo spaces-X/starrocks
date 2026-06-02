@@ -133,6 +133,36 @@ impl IndexReaderWrapper {
         self.collect_doc_ids(&query)
     }
 
+    /// MATCH_ANY with BM25 relevance scores: returns `(row_id, score)` per hit.
+    /// Uses `WithFreqs` so tantivy reads term frequencies → full BM25 (k1=1.2,
+    /// b=0.75); the index already stores freqs+positions (see index_writer.rs).
+    pub fn match_any_query_scored(&self, terms: &[&str]) -> Result<Vec<(u32, f32)>> {
+        let subqueries: Vec<(Occur, Box<dyn Query>)> = terms
+            .iter()
+            .map(|t| {
+                let term = Term::from_field_text(self.text_field, t);
+                let q: Box<dyn Query> = Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs));
+                (Occur::Should, q)
+            })
+            .collect();
+        let bq = BooleanQuery::new(subqueries);
+        self.collect_doc_ids_scored(&bq)
+    }
+
+    /// MATCH_ALL with BM25 relevance scores: returns `(row_id, score)` per hit.
+    pub fn match_all_query_scored(&self, terms: &[&str]) -> Result<Vec<(u32, f32)>> {
+        let subqueries: Vec<(Occur, Box<dyn Query>)> = terms
+            .iter()
+            .map(|t| {
+                let term = Term::from_field_text(self.text_field, t);
+                let q: Box<dyn Query> = Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs));
+                (Occur::Must, q)
+            })
+            .collect();
+        let bq = BooleanQuery::new(subqueries);
+        self.collect_doc_ids_scored(&bq)
+    }
+
     /// MATCH_PHRASE: ordered terms with at most `slop` positional gaps.
     pub fn phrase_query(&self, terms: &[&str], slop: u32) -> Result<Vec<u32>> {
         if terms.is_empty() {
@@ -153,6 +183,14 @@ impl IndexReaderWrapper {
     fn collect_doc_ids(&self, query: &dyn Query) -> Result<Vec<u32>> {
         let searcher = self.reader.searcher();
         Ok(searcher.search(query, &RowIdCollector)?)
+    }
+
+    /// Like `collect_doc_ids` but keeps the BM25 score per hit. Returns
+    /// `(row_id, score)`; the caller sorts (top-N by score desc for a `score()`
+    /// ORDER BY ... LIMIT). Scores are unordered/segment-interleaved on return.
+    fn collect_doc_ids_scored(&self, query: &dyn Query) -> Result<Vec<(u32, f32)>> {
+        let searcher = self.reader.searcher();
+        Ok(searcher.search(query, &RowIdScoreCollector)?)
     }
 }
 
@@ -266,4 +304,46 @@ pub(crate) fn like_pattern_to_regex(pattern: &str) -> Option<String> {
         regex.push_str(".*");
     }
     Some(regex)
+}
+
+// Scored sibling of RowIdCollector: turns BM25 on (`requires_scoring = true`) and
+// keeps the per-hit score next to the BE row id. Reuses the same `row_id`
+// fast-field resolution so (row_id, score) stays correctly paired across tantivy
+// segments. This is the core BM25 mechanism for a native `score()` function.
+struct RowIdScoreCollector;
+
+struct RowIdScoreSegmentCollector {
+    row_id: Column<u64>,
+    hits: Vec<(u32, f32)>,
+}
+
+impl Collector for RowIdScoreCollector {
+    type Fruit = Vec<(u32, f32)>;
+    type Child = RowIdScoreSegmentCollector;
+
+    fn for_segment(&self, _ord: SegmentOrdinal, seg: &SegmentReader) -> tantivy::Result<RowIdScoreSegmentCollector> {
+        Ok(RowIdScoreSegmentCollector { row_id: seg.fast_fields().u64("row_id")?, hits: Vec::new() })
+    }
+
+    fn requires_scoring(&self) -> bool {
+        true
+    }
+
+    fn merge_fruits(&self, segs: Vec<Vec<(u32, f32)>>) -> tantivy::Result<Vec<(u32, f32)>> {
+        Ok(segs.into_iter().flatten().collect())
+    }
+}
+
+impl SegmentCollector for RowIdScoreSegmentCollector {
+    type Fruit = Vec<(u32, f32)>;
+
+    fn collect(&mut self, doc: u32, score: Score) {
+        if let Some(rid) = self.row_id.values_for_doc(doc).next() {
+            self.hits.push((rid as u32, score));
+        }
+    }
+
+    fn harvest(self) -> Vec<(u32, f32)> {
+        self.hits
+    }
 }

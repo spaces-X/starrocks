@@ -195,6 +195,9 @@ public class OlapScanNode extends ScanNode {
 
     private VectorSearchOptions vectorSearchOptions = new VectorSearchOptions();
 
+    // BM25 score(): slot id of the synthetic FLOAT score column (-1 = disabled).
+    private long bm25ScoreSlotId = -1;
+
     private boolean calcaulatedScanRange = false;
 
     private long totalScanRangeBytes = 0;
@@ -227,6 +230,10 @@ public class OlapScanNode extends ScanNode {
 
     public void setVectorSearchOptions(VectorSearchOptions vectorSearchOptions) {
         this.vectorSearchOptions = vectorSearchOptions;
+    }
+
+    public void setBm25ScoreSlotId(long bm25ScoreSlotId) {
+        this.bm25ScoreSlotId = bm25ScoreSlotId;
     }
 
     public void setIsPreAggregation(boolean isPreAggregation, String reason) {
@@ -1114,6 +1121,9 @@ public class OlapScanNode extends ScanNode {
 
             if (vectorSearchOptions != null && vectorSearchOptions.isEnableUseANN()) {
                 msg.olap_scan_node.setVector_search_options(vectorSearchOptions.toThrift());
+            }
+            if (bm25ScoreSlotId >= 0) {
+                msg.olap_scan_node.setBm25_score_slot_id((int) bm25ScoreSlotId);
             }
 
             msg.olap_scan_node.setUse_pk_index(usePkIndex);

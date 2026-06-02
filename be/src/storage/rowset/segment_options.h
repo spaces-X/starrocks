@@ -114,6 +114,12 @@ public:
 
     VectorSearchOptionPtr vector_search_option = nullptr;
 
+    // BM25 score(): see TabletReaderParams. Synthetic score output column.
+    bool use_bm25_score = false;
+    int32_t bm25_score_slot_id = 0;
+    int32_t bm25_score_column_id = 0;
+    std::string bm25_score_column_name;
+
     // Data sampling by block-level, which is a core-component of TABLE-SAMPLE feature
     // 1. Regular block smapling: Bernoulli sampling on page-id
     // 2. Partial-Sorted block: leverage data ordering to improve the evenness

@@ -14,6 +14,7 @@
 
 #pragma once
 #include <string>
+#include <unordered_map>
 
 #include "storage/index/inverted/inverted_index_option.h"
 #include "storage/index/inverted/inverted_reader.h"
@@ -37,6 +38,12 @@ public:
 
     virtual Status read_from_inverted_index(const std::string& column_name, const void* query_value,
                                             InvertedIndexQueryType query_type, roaring::Roaring* bit_map);
+
+    // Scored variant: also fills `row_to_score` (segment-local row id -> BM25
+    // score) for a SQL score() column. Forwards to InvertedReader::query_scored.
+    virtual Status read_from_inverted_index_scored(const std::string& column_name, const void* query_value,
+                                                   InvertedIndexQueryType query_type, roaring::Roaring* bit_map,
+                                                   std::unordered_map<uint32_t, float>* row_to_score);
 
     virtual Status read_null(const std::string& column_name, roaring::Roaring* bit_map);
 

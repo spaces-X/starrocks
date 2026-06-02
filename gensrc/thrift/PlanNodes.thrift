@@ -633,6 +633,10 @@ struct TOlapScanNode {
   40: optional TVectorSearchOptions vector_search_options
   41: optional TTableSampleOptions sample_options;
 
+  // BM25 score(): when set, the scan runs the GIN/tantivy MATCH predicate in
+  // scoring mode and materializes the per-row BM25 score into this output slot.
+  42: optional i32 bm25_score_slot_id
+
   //back pressure
   50: optional bool enable_topn_filter_back_pressure
   51: optional i32 back_pressure_max_rounds

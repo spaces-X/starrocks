@@ -866,6 +866,7 @@ public class PlanFragmentBuilder {
             scanNode.setWithoutColocateRequirement(node.isWithoutColocateRequirement());
             scanNode.setGtid(node.getGtid());
             scanNode.setVectorSearchOptions(node.getVectorSearchOptions());
+            scanNode.setBm25ScoreSlotId(node.getBm25ScoreSlotId());
             scanNode.setSample(node.getSample());
             currentExecGroup.add(scanNode);
             // set tablet

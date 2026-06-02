@@ -269,6 +269,7 @@ private:
     Status _encode_to_global_id(ScanContext* ctx);
 
     FieldPtr _make_field(size_t i);
+    FieldPtr _make_bm25_score_field(size_t i);
 
     Status _switch_context(ScanContext* to);
 
@@ -392,7 +393,7 @@ private:
     std::shared_ptr<tenann::IndexMeta> _index_meta;
 #endif
 
-    bool _always_build_rowid() const { return _use_vector_index && !_use_ivfpq; }
+    bool _always_build_rowid() const { return (_use_vector_index && !_use_ivfpq) || _bm25_score_requested; }
 
     bool _use_vector_index;
     std::string _vector_distance_column_name;
@@ -403,6 +404,16 @@ private:
     double _vector_range;
     int _result_order;
     bool _use_ivfpq;
+
+    // BM25 score(): mirror of the vector distance path. When requested, the
+    // GIN/tantivy MATCH predicate runs in scoring mode; the per-row BM25 score
+    // (segment-local row id -> score) is captured in _apply_inverted_index and
+    // materialized into the synthetic score output column in _do_get_next.
+    bool _bm25_score_requested = false;
+    int _bm25_score_column_id = 0;
+    SlotId _bm25_score_slot_id = 0;
+    std::string _bm25_score_column_name;
+    std::unordered_map<rowid_t, float> _bm25_score_map;
 
     Status _init_reader_from_file(const std::string& index_path, const std::shared_ptr<TabletIndex>& tablet_index_meta,
                                   const std::map<std::string, std::string>& query_params);
@@ -439,6 +450,12 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, Schema schema
                 .size = static_cast<uint32_t>(_opts.vector_search_option->query_vector.size()),
                 .elem_type = tenann::PrimitiveType::kFloatType};
 #endif
+    }
+    if (_opts.use_bm25_score) {
+        _bm25_score_requested = true;
+        _bm25_score_column_id = _opts.bm25_score_column_id;
+        _bm25_score_slot_id = _opts.bm25_score_slot_id;
+        _bm25_score_column_name = _opts.bm25_score_column_name;
     }
     // For small segment file (the number of rows is less than chunk_size),
     // the segment iterator will reserve a large amount of memory,
@@ -1599,6 +1616,17 @@ Status SegmentIterator::_do_get_next(Chunk* result, vector<rowid_t>* rowid) {
         chunk->append_vector_column(std::move(distance_column), _make_field(_vector_column_id), _vector_slot_id);
     }
 
+    if (_bm25_score_requested) {
+        DCHECK(rowid != nullptr);
+        FloatColumn::MutablePtr score_column = FloatColumn::create();
+        for (const auto& rid : *rowid) {
+            auto it = _bm25_score_map.find(rid);
+            score_column->append(it != _bm25_score_map.end() ? it->second : 0.0f);
+        }
+        chunk->append_vector_column(std::move(score_column), _make_bm25_score_field(_bm25_score_column_id),
+                                    _bm25_score_slot_id);
+    }
+
     result->swap_chunk(*chunk);
 
     if (need_switch_context) {
@@ -1610,6 +1638,10 @@ Status SegmentIterator::_do_get_next(Chunk* result, vector<rowid_t>* rowid) {
 
 FieldPtr SegmentIterator::_make_field(size_t i) {
     return std::make_shared<Field>(i, _vector_distance_column_name, get_type_info(TYPE_FLOAT), false);
+}
+
+FieldPtr SegmentIterator::_make_bm25_score_field(size_t i) {
+    return std::make_shared<Field>(i, _bm25_score_column_name, get_type_info(TYPE_FLOAT), false);
 }
 
 Status SegmentIterator::_switch_context(ScanContext* to) {
@@ -2345,7 +2377,8 @@ Status SegmentIterator::_apply_inverted_index() {
         std::string column_name(_schema.field(it->second)->name());
         for (const ColumnPredicate* pred : pred_list) {
             if (_inverted_index_iterators[cid]->is_untokenized() || pred->type() == PredicateType::kExpr) {
-                Status res = pred->seek_inverted_index(column_name, _inverted_index_iterators[cid], &row_bitmap);
+                Status res = pred->seek_inverted_index(column_name, _inverted_index_iterators[cid], &row_bitmap,
+                                                       _bm25_score_requested ? &_bm25_score_map : nullptr);
                 if (res.ok()) {
                     erased_preds.emplace(pred);
                     erased_pred_col_ids.emplace(cid);

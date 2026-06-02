@@ -67,6 +67,9 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
 
     private VectorSearchOptions vectorSearchOptions = new VectorSearchOptions();
 
+    // BM25 score(): slot id of the synthetic FLOAT score column (-1 = disabled).
+    private long bm25ScoreSlotId = -1;
+
     private long gtid = 0;
 
     private PhysicalOlapScanOperator() {
@@ -108,11 +111,16 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
         this.prunedPartitionPredicates = scanOperator.getPrunedPartitionPredicates();
         this.usePkIndex = scanOperator.isUsePkIndex();
         this.vectorSearchOptions = scanOperator.getVectorSearchOptions();
+        this.bm25ScoreSlotId = scanOperator.getBm25ScoreSlotId();
         this.sample = scanOperator.getSample();
     }
 
     public VectorSearchOptions getVectorSearchOptions() {
         return vectorSearchOptions;
+    }
+
+    public long getBm25ScoreSlotId() {
+        return bm25ScoreSlotId;
     }
 
     public long getSelectedIndexId() {
@@ -320,6 +328,7 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
             builder.globalDicts = operator.globalDicts;
             builder.prunedPartitionPredicates = operator.prunedPartitionPredicates;
             builder.vectorSearchOptions = operator.vectorSearchOptions;
+            builder.bm25ScoreSlotId = operator.bm25ScoreSlotId;
             builder.sample = operator.getSample();
             return this;
         }

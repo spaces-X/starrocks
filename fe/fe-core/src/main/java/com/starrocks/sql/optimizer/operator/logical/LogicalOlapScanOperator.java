@@ -56,6 +56,10 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
 
     private VectorSearchOptions vectorSearchOptions = new VectorSearchOptions();
 
+    // BM25 score(): slot id of the synthetic FLOAT score column (-1 = disabled).
+    // Set by RewriteToBm25ScorePlanRule; threaded to TOlapScanNode.bm25_score_slot_id.
+    private long bm25ScoreSlotId = -1;
+
     // Only for UT
     public LogicalOlapScanOperator(Table table) {
         this(table, Maps.newHashMap(), Maps.newHashMap(), null, Operator.DEFAULT_LIMIT, null);
@@ -177,6 +181,14 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
         this.vectorSearchOptions = vectorSearchOptions;
     }
 
+    public long getBm25ScoreSlotId() {
+        return bm25ScoreSlotId;
+    }
+
+    public void setBm25ScoreSlotId(long bm25ScoreSlotId) {
+        this.bm25ScoreSlotId = bm25ScoreSlotId;
+    }
+
     public TableSampleClause getSample() {
         return sample;
     }
@@ -250,6 +262,7 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
             builder.usePkIndex = scanOperator.usePkIndex;
             builder.fromSplitOR = scanOperator.fromSplitOR;
             builder.vectorSearchOptions = scanOperator.vectorSearchOptions;
+            builder.bm25ScoreSlotId = scanOperator.bm25ScoreSlotId;
             builder.sample = scanOperator.getSample();
             return this;
         }

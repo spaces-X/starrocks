@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use tantivy::directory::RamDirectory;
-use tantivy::schema::{IndexRecordOption, Schema, TextFieldIndexing, TextOptions};
+use tantivy::schema::{FAST, IndexRecordOption, Schema, TextFieldIndexing, TextOptions};
 use tantivy::{Index, ReloadPolicy, TantivyDocument};
 use tempfile::TempDir;
 
@@ -75,6 +75,9 @@ fn open_works_with_ram_directory() {
             .set_index_option(IndexRecordOption::WithFreqsAndPositions),
     );
     let text_field = schema_builder.add_text_field("f", text_options);
+    // RowIdCollector resolves hits via the stored `row_id` fast field, so the
+    // hand-built index must carry it (mirrors IndexWriterWrapper's schema).
+    let row_id_field = schema_builder.add_u64_field("row_id", FAST);
     let schema = schema_builder.build();
 
     let ram_dir = RamDirectory::create();
@@ -86,9 +89,10 @@ fn open_works_with_ram_directory() {
         .register(crate::safe::tokenizer::TOKENIZER_NAME, analyzer);
 
     let mut writer = index.writer_with_num_threads(1, 15_000_000).expect("writer");
-    for v in ["alpha beta", "gamma", "alpha"] {
+    for (i, v) in ["alpha beta", "gamma", "alpha"].iter().enumerate() {
         let mut doc = TantivyDocument::default();
-        doc.add_text(text_field, v);
+        doc.add_text(text_field, *v);
+        doc.add_u64(row_id_field, i as u64);
         writer.add_document(doc).expect("add");
     }
     writer.commit().expect("commit");
@@ -237,4 +241,46 @@ mod wildcard {
         hits.sort_unstable();
         assert_eq!(hits, vec![0u32]);
     }
+}
+
+#[test]
+fn score_ranks_by_tf_and_length() {
+    let tmp = build(&[
+        "gif gif gif gif",   // 0: TF=4, highest
+        "gif jpg png html",  // 1: TF=1, longer
+        "html css json xml", // 2: no gif
+        "gif",               // 3: TF=1, shortest
+    ]);
+    let r = IndexReaderWrapper::load(tmp.path(), "f", "english").expect("load");
+    let mut hits = r.match_any_query_scored(&["gif"]).expect("scored query");
+    // only the 3 docs containing 'gif' come back
+    let rows: std::collections::BTreeSet<u32> = hits.iter().map(|(rid, _)| *rid).collect();
+    assert_eq!(rows, [0u32, 1, 3].into_iter().collect(), "matched rows: {hits:?}");
+    // every BM25 score is positive
+    assert!(hits.iter().all(|(_, s)| *s > 0.0), "scores: {hits:?}");
+    // rank by score desc → doc 0 (TF=4) is the top hit
+    hits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    assert_eq!(hits[0].0, 0u32, "highest TF ranks first: {hits:?}");
+    let s = |rid: u32| hits.iter().find(|(r, _)| *r == rid).unwrap().1;
+    assert!(s(0) > s(1), "TF=4 outranks TF=1: {hits:?}");
+    assert!(s(3) > s(1), "shorter doc outranks longer for same TF: {hits:?}");
+}
+
+#[test]
+fn score_rarer_term_scores_higher_idf() {
+    // 'gif' in 3 docs (low IDF), 'png' in 1 (high IDF); all docs are a single
+    // token, and both tokens are stemming-invariant under the english analyzer
+    // (so the raw-term query — matching production's pre-tokenized input —
+    // hits). This isolates IDF: same doc length, only term rarity differs.
+    let tmp = build(&["gif", "gif", "gif", "png"]);
+    let r = IndexReaderWrapper::load(tmp.path(), "f", "english").expect("load");
+    let common = r.match_any_query_scored(&["gif"]).expect("q");
+    let rare = r.match_any_query_scored(&["png"]).expect("q");
+    assert_eq!(common.len(), 3, "gif in 3 docs: {common:?}");
+    assert_eq!(rare.len(), 1, "png in 1 doc: {rare:?}");
+    // rarer term → higher IDF → higher BM25
+    assert!(
+        rare[0].1 > common[0].1,
+        "rarer 'png' {rare:?} should outscore common 'gif' {common:?}"
+    );
 }
