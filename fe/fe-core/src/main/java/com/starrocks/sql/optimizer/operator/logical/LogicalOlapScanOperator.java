@@ -59,6 +59,8 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
     // BM25 score(): slot id of the synthetic FLOAT score column (-1 = disabled).
     // Set by RewriteToBm25ScorePlanRule; threaded to TOlapScanNode.bm25_score_slot_id.
     private long bm25ScoreSlotId = -1;
+    // BM25 score(): SQL LIMIT(+OFFSET) for top-k pushdown (-1/0 = score every row).
+    private long bm25ScoreLimit = 0;
 
     // Only for UT
     public LogicalOlapScanOperator(Table table) {
@@ -189,6 +191,14 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
         this.bm25ScoreSlotId = bm25ScoreSlotId;
     }
 
+    public long getBm25ScoreLimit() {
+        return bm25ScoreLimit;
+    }
+
+    public void setBm25ScoreLimit(long bm25ScoreLimit) {
+        this.bm25ScoreLimit = bm25ScoreLimit;
+    }
+
     public TableSampleClause getSample() {
         return sample;
     }
@@ -263,6 +273,7 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
             builder.fromSplitOR = scanOperator.fromSplitOR;
             builder.vectorSearchOptions = scanOperator.vectorSearchOptions;
             builder.bm25ScoreSlotId = scanOperator.bm25ScoreSlotId;
+            builder.bm25ScoreLimit = scanOperator.bm25ScoreLimit;
             builder.sample = scanOperator.getSample();
             return this;
         }

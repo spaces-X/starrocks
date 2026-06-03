@@ -636,6 +636,9 @@ struct TOlapScanNode {
   // BM25 score(): when set, the scan runs the GIN/tantivy MATCH predicate in
   // scoring mode and materializes the per-row BM25 score into this output slot.
   42: optional i32 bm25_score_slot_id
+  // BM25 score(): SQL LIMIT(+OFFSET) pushed into the scored GIN query so tantivy
+  // returns only the top-k rows by score; absent / <=0 scores every matched row.
+  43: optional i32 bm25_score_limit
 
   //back pressure
   50: optional bool enable_topn_filter_back_pressure

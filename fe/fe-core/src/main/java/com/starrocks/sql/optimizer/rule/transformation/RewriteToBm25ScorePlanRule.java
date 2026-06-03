@@ -21,6 +21,7 @@ import com.starrocks.catalog.Type;
 import com.starrocks.sql.ast.IndexDef;
 import com.starrocks.sql.optimizer.OptExpression;
 import com.starrocks.sql.optimizer.OptimizerContext;
+import com.starrocks.sql.optimizer.base.Ordering;
 import com.starrocks.sql.optimizer.operator.OperatorType;
 import com.starrocks.sql.optimizer.operator.Projection;
 import com.starrocks.sql.optimizer.operator.logical.LogicalOlapScanOperator;
@@ -72,7 +73,8 @@ public class RewriteToBm25ScorePlanRule extends TransformationRule {
         OlapTable table = (OlapTable) scanOp.getTable();
 
         // 1. The ordering column must be a zero-arg score() call.
-        ColumnRefOperator outColRef = topNOp.getOrderByElements().get(0).getColumnRef();
+        Ordering ordering = topNOp.getOrderByElements().get(0);
+        ColumnRefOperator outColRef = ordering.getColumnRef();
         ScalarOperator inOp = scanOp.getProjection().getColumnRefMap().get(outColRef);
         if (!(inOp instanceof CallOperator)) {
             return List.of();
@@ -122,6 +124,13 @@ public class RewriteToBm25ScorePlanRule extends TransformationRule {
                 .setColumnMetaToColRefMap(newColumnMetaToColRefMap)
                 .build();
         newScanOp.setBm25ScoreSlotId(scoreColRef.getId());
+        // 5. Push the LIMIT into the scored GIN query so tantivy returns only the
+        // top-k rows by score (WAND pruning), mirroring the vector ANN top-k path.
+        // Only valid for ORDER BY score() DESC (TopDocs keeps highest scores); for
+        // ASC, leave the limit at 0 so the BE scores every matched row.
+        if (!ordering.isAscending()) {
+            newScanOp.setBm25ScoreLimit(topNOp.getLimit() + Math.max(0L, topNOp.getOffset()));
+        }
 
         return List.of(OptExpression.create(topNOp, OptExpression.create(newScanOp)));
     }

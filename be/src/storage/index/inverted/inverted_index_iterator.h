@@ -45,6 +45,11 @@ public:
                                                    InvertedIndexQueryType query_type, roaring::Roaring* bit_map,
                                                    std::unordered_map<uint32_t, float>* row_to_score);
 
+    // Top-k pushdown for the scored path: the SegmentIterator sets the SQL LIMIT
+    // here before applying the GIN predicate so the scored query only materializes
+    // the best `limit` rows (0 = score every hit). Mirrors the vector ANN top-k.
+    void set_bm25_topk_limit(int32_t limit) { _bm25_topk_limit = limit; }
+
     virtual Status read_null(const std::string& column_name, roaring::Roaring* bit_map);
 
     virtual InvertedIndexParserType get_inverted_index_analyser_type() const;
@@ -60,6 +65,7 @@ protected:
     OlapReaderStatistics* _stats;
     InvertedReader* _reader;
     InvertedIndexParserType _analyser_type;
+    int32_t _bm25_topk_limit = 0;
 };
 
 } // namespace starrocks

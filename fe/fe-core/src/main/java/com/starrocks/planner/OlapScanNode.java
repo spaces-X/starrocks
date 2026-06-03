@@ -197,6 +197,8 @@ public class OlapScanNode extends ScanNode {
 
     // BM25 score(): slot id of the synthetic FLOAT score column (-1 = disabled).
     private long bm25ScoreSlotId = -1;
+    // BM25 score(): SQL LIMIT(+OFFSET) for top-k pushdown (0 = score every row).
+    private long bm25ScoreLimit = 0;
 
     private boolean calcaulatedScanRange = false;
 
@@ -234,6 +236,10 @@ public class OlapScanNode extends ScanNode {
 
     public void setBm25ScoreSlotId(long bm25ScoreSlotId) {
         this.bm25ScoreSlotId = bm25ScoreSlotId;
+    }
+
+    public void setBm25ScoreLimit(long bm25ScoreLimit) {
+        this.bm25ScoreLimit = bm25ScoreLimit;
     }
 
     public void setIsPreAggregation(boolean isPreAggregation, String reason) {
@@ -1124,6 +1130,9 @@ public class OlapScanNode extends ScanNode {
             }
             if (bm25ScoreSlotId >= 0) {
                 msg.olap_scan_node.setBm25_score_slot_id((int) bm25ScoreSlotId);
+                if (bm25ScoreLimit > 0) {
+                    msg.olap_scan_node.setBm25_score_limit((int) bm25ScoreLimit);
+                }
             }
 
             msg.olap_scan_node.setUse_pk_index(usePkIndex);

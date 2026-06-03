@@ -412,6 +412,7 @@ private:
     bool _bm25_score_requested = false;
     int _bm25_score_column_id = 0;
     SlotId _bm25_score_slot_id = 0;
+    int32_t _bm25_score_limit = 0;
     std::string _bm25_score_column_name;
     std::unordered_map<rowid_t, float> _bm25_score_map;
 
@@ -456,6 +457,7 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, Schema schema
         _bm25_score_column_id = _opts.bm25_score_column_id;
         _bm25_score_slot_id = _opts.bm25_score_slot_id;
         _bm25_score_column_name = _opts.bm25_score_column_name;
+        _bm25_score_limit = _opts.bm25_score_limit;
     }
     // For small segment file (the number of rows is less than chunk_size),
     // the segment iterator will reserve a large amount of memory,
@@ -2375,6 +2377,11 @@ Status SegmentIterator::_apply_inverted_index() {
         RETURN_IF(it == cid_2_fid.end(),
                   Status::InternalError(strings::Substitute("No fid can be mapped by cid $0", cid)));
         std::string column_name(_schema.field(it->second)->name());
+        if (_bm25_score_requested) {
+            // Push the SQL LIMIT into the scored GIN query so tantivy returns only
+            // the top-k rows (see InvertedIndexIterator::set_bm25_topk_limit).
+            _inverted_index_iterators[cid]->set_bm25_topk_limit(_bm25_score_limit);
+        }
         for (const ColumnPredicate* pred : pred_list) {
             if (_inverted_index_iterators[cid]->is_untokenized() || pred->type() == PredicateType::kExpr) {
                 Status res = pred->seek_inverted_index(column_name, _inverted_index_iterators[cid], &row_bitmap,

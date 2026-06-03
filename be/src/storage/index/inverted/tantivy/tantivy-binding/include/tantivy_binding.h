@@ -174,12 +174,16 @@ RustResult tantivy_match_all_query(const void *reader,
  * Caller MUST release `out_ids` via `tantivy_free_u32_array` and `out_scores`
  * via `tantivy_free_f32_array`.
  *
+ * `limit > 0` pushes the SQL LIMIT into tantivy so only the top-`limit` hits by
+ * score are returned (per segment); `limit == 0` returns every hit.
+ *
  * SAFETY: `reader`, `out_ids`, `out_scores` non-NULL; `terms` is a `count`-
  * array of FFISlice (or `count == 0`).
  */
 RustResult tantivy_match_query_scored(const void *reader,
                                       const FFISlice *terms,
                                       uintptr_t count,
+                                      uint64_t limit,
                                       RustU32Array *out_ids,
                                       RustF32Array *out_scores);
 
@@ -192,6 +196,7 @@ RustResult tantivy_match_query_scored(const void *reader,
 RustResult tantivy_match_all_query_scored(const void *reader,
                                           const FFISlice *terms,
                                           uintptr_t count,
+                                          uint64_t limit,
                                           RustU32Array *out_ids,
                                           RustF32Array *out_scores);
 

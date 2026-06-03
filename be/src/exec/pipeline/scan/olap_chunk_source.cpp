@@ -92,6 +92,9 @@ Status OlapChunkSource::prepare(RuntimeState* state) {
     _use_bm25_score = thrift_olap_scan_node.__isset.bm25_score_slot_id;
     if (_use_bm25_score) {
         _bm25_score_slot_id = thrift_olap_scan_node.bm25_score_slot_id;
+        // LIMIT pushdown for top-k scoring; absent / <=0 means score every hit.
+        _bm25_score_limit =
+                thrift_olap_scan_node.__isset.bm25_score_limit ? thrift_olap_scan_node.bm25_score_limit : 0;
     }
     const TupleDescriptor* tuple_desc = state->desc_tbl().get_tuple_descriptor(thrift_olap_scan_node.tuple_id);
     _slots = &tuple_desc->slots();
@@ -267,6 +270,7 @@ Status OlapChunkSource::_init_reader_params(const std::vector<std::unique_ptr<Ol
     }
     _params.use_vector_index = _use_vector_index;
     _params.use_bm25_score = _use_bm25_score;
+    _params.bm25_score_limit = _bm25_score_limit;
     if (_use_vector_index) {
         const TVectorSearchOptions& vector_options = thrift_olap_scan_node.vector_search_options;
 

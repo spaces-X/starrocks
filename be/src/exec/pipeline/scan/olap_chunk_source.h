@@ -113,6 +113,7 @@ private:
     // BM25 score(): mirror of the vector slot, for the synthetic score column.
     bool _use_bm25_score = false;
     SlotId _bm25_score_slot_id = 0;
+    int32_t _bm25_score_limit = 0;
 
     std::shared_ptr<starrocks::TableMetrics> _table_metrics;
 

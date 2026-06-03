@@ -111,6 +111,9 @@ struct TabletReaderParams {
     bool use_bm25_score = false;
     int32_t bm25_score_slot_id = 0;
     int32_t bm25_score_column_id = 0;
+    // SQL LIMIT (+OFFSET) pushed into the scored GIN query for top-k pruning;
+    // 0 (or ORDER BY score() ASC) scores every matched row.
+    int32_t bm25_score_limit = 0;
     // Name of the synthetic score column as assigned by the FE rewrite rule
     // (e.g. "__bm25_score_<id>"). Threaded to the SegmentIterator so the
     // appended chunk column carries the same name the output slot expects,

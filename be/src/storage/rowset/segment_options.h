@@ -118,6 +118,7 @@ public:
     bool use_bm25_score = false;
     int32_t bm25_score_slot_id = 0;
     int32_t bm25_score_column_id = 0;
+    int32_t bm25_score_limit = 0;
     std::string bm25_score_column_name;
 
     // Data sampling by block-level, which is a core-component of TABLE-SAMPLE feature
