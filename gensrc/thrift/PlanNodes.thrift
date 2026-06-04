@@ -690,6 +690,9 @@ struct TLakeScanNode {
   // inverted index
   43: optional bool enable_prune_column_after_index_filter
   44: optional bool enable_gin_filter
+  // BM25 score(): same semantics as TOlapScanNode (shared-data / cloud-native path).
+  45: optional i32 bm25_score_slot_id
+  46: optional i32 bm25_score_limit
 }
 
 struct TEqJoinCondition {

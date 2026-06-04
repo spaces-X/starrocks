@@ -1073,6 +1073,14 @@ public class OlapScanNode extends ScanNode {
             }
 
             msg.lake_scan_node.setOutput_asc_hint(sortKeyAscHint);
+
+            // BM25 score(): shared-data / cloud-native path uses the lake scan node.
+            if (bm25ScoreSlotId >= 0) {
+                msg.lake_scan_node.setBm25_score_slot_id((int) bm25ScoreSlotId);
+                if (bm25ScoreLimit > 0) {
+                    msg.lake_scan_node.setBm25_score_limit((int) bm25ScoreLimit);
+                }
+            }
         } else { // If you find yourself changing this code block, see also the above code block
             msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
             msg.olap_scan_node =

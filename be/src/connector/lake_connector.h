@@ -109,6 +109,11 @@ private:
     // slot descriptors for each one of |output_columns|.
     std::vector<SlotDescriptor*> _query_slots;
 
+    // BM25 score(): synthetic FLOAT score column, mirrors OlapChunkSource.
+    bool _use_bm25_score = false;
+    SlotId _bm25_score_slot_id = 0;
+    int32_t _bm25_score_limit = 0;
+
     std::vector<ColumnAccessPathPtr> _column_access_paths;
 
     // The following are profile meatures
