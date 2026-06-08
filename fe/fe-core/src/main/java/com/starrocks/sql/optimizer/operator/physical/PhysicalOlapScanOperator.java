@@ -71,6 +71,9 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
     private long bm25ScoreSlotId = -1;
     // BM25 score(): SQL LIMIT(+OFFSET) for top-k pushdown (-1/0 = score every row).
     private long bm25ScoreLimit = 0;
+    // BM25 score(): inclusive [min, max] gate for `WHERE score() > c`; +/-Inf = unbounded.
+    private double bm25ScoreMin = Double.NEGATIVE_INFINITY;
+    private double bm25ScoreMax = Double.POSITIVE_INFINITY;
 
     private long gtid = 0;
 
@@ -115,6 +118,8 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
         this.vectorSearchOptions = scanOperator.getVectorSearchOptions();
         this.bm25ScoreSlotId = scanOperator.getBm25ScoreSlotId();
         this.bm25ScoreLimit = scanOperator.getBm25ScoreLimit();
+        this.bm25ScoreMin = scanOperator.getBm25ScoreMin();
+        this.bm25ScoreMax = scanOperator.getBm25ScoreMax();
         this.sample = scanOperator.getSample();
     }
 
@@ -128,6 +133,14 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
 
     public long getBm25ScoreLimit() {
         return bm25ScoreLimit;
+    }
+
+    public double getBm25ScoreMin() {
+        return bm25ScoreMin;
+    }
+
+    public double getBm25ScoreMax() {
+        return bm25ScoreMax;
     }
 
     public long getSelectedIndexId() {
@@ -337,6 +350,8 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
             builder.vectorSearchOptions = operator.vectorSearchOptions;
             builder.bm25ScoreSlotId = operator.bm25ScoreSlotId;
             builder.bm25ScoreLimit = operator.bm25ScoreLimit;
+            builder.bm25ScoreMin = operator.bm25ScoreMin;
+            builder.bm25ScoreMax = operator.bm25ScoreMax;
             builder.sample = operator.getSample();
             return this;
         }

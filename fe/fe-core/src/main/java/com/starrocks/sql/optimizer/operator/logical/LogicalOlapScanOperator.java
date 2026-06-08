@@ -61,6 +61,11 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
     private long bm25ScoreSlotId = -1;
     // BM25 score(): SQL LIMIT(+OFFSET) for top-k pushdown (-1/0 = score every row).
     private long bm25ScoreLimit = 0;
+    // BM25 score(): inclusive [min, max] gate for a `WHERE score() > c` predicate,
+    // pushed into the scored GIN query. Set by RewriteToBm25ScoreFilterRule;
+    // +/-Infinity = unbounded that end.
+    private double bm25ScoreMin = Double.NEGATIVE_INFINITY;
+    private double bm25ScoreMax = Double.POSITIVE_INFINITY;
 
     // Only for UT
     public LogicalOlapScanOperator(Table table) {
@@ -199,6 +204,22 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
         this.bm25ScoreLimit = bm25ScoreLimit;
     }
 
+    public double getBm25ScoreMin() {
+        return bm25ScoreMin;
+    }
+
+    public void setBm25ScoreMin(double bm25ScoreMin) {
+        this.bm25ScoreMin = bm25ScoreMin;
+    }
+
+    public double getBm25ScoreMax() {
+        return bm25ScoreMax;
+    }
+
+    public void setBm25ScoreMax(double bm25ScoreMax) {
+        this.bm25ScoreMax = bm25ScoreMax;
+    }
+
     public TableSampleClause getSample() {
         return sample;
     }
@@ -274,6 +295,8 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
             builder.vectorSearchOptions = scanOperator.vectorSearchOptions;
             builder.bm25ScoreSlotId = scanOperator.bm25ScoreSlotId;
             builder.bm25ScoreLimit = scanOperator.bm25ScoreLimit;
+            builder.bm25ScoreMin = scanOperator.bm25ScoreMin;
+            builder.bm25ScoreMax = scanOperator.bm25ScoreMax;
             builder.sample = scanOperator.getSample();
             return this;
         }
