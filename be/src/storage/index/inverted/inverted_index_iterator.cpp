@@ -26,8 +26,8 @@ Status InvertedIndexIterator::read_from_inverted_index_scored(const std::string&
                                                               InvertedIndexQueryType query_type,
                                                               roaring::Roaring* bit_map,
                                                               std::unordered_map<uint32_t, float>* row_to_score) {
-    RETURN_IF_ERROR(_reader->query_scored(_stats, column_name, query_value, query_type, _bm25_topk_limit, bit_map,
-                                          row_to_score));
+    RETURN_IF_ERROR(_reader->query_scored(_stats, column_name, query_value, query_type, _bm25_topk_limit,
+                                          _bm25_score_min, _bm25_score_max, bit_map, row_to_score));
     return Status::OK();
 }
 

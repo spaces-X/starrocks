@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #pragma once
+#include <limits>
 #include <string>
 #include <unordered_map>
 
@@ -50,6 +51,14 @@ public:
     // the best `limit` rows (0 = score every hit). Mirrors the vector ANN top-k.
     void set_bm25_topk_limit(int32_t limit) { _bm25_topk_limit = limit; }
 
+    // Min/max BM25 score gate for the scored path: a `WHERE score() > c`
+    // predicate is pushed here so the scored query only materializes hits whose
+    // score is in [min, max] (-/+INFINITY = unbounded), filtered inside tantivy.
+    void set_bm25_score_range(float min_score, float max_score) {
+        _bm25_score_min = min_score;
+        _bm25_score_max = max_score;
+    }
+
     virtual Status read_null(const std::string& column_name, roaring::Roaring* bit_map);
 
     virtual InvertedIndexParserType get_inverted_index_analyser_type() const;
@@ -66,6 +75,8 @@ protected:
     InvertedReader* _reader;
     InvertedIndexParserType _analyser_type;
     int32_t _bm25_topk_limit = 0;
+    float _bm25_score_min = -std::numeric_limits<float>::infinity();
+    float _bm25_score_max = std::numeric_limits<float>::infinity();
 };
 
 } // namespace starrocks

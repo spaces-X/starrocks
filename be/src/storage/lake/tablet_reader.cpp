@@ -341,6 +341,8 @@ Status TabletReader::get_segment_iterators(const TabletReaderParams& params, std
     rs_opts.bm25_score_column_id = params.bm25_score_column_id;
     rs_opts.bm25_score_column_name = params.bm25_score_column_name;
     rs_opts.bm25_score_limit = params.bm25_score_limit;
+    rs_opts.bm25_score_min = params.bm25_score_min;
+    rs_opts.bm25_score_max = params.bm25_score_max;
 
     if (keys_type == KeysType::PRIMARY_KEYS) {
         rs_opts.is_primary_keys = true;

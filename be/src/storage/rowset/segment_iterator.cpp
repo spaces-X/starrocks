@@ -393,7 +393,11 @@ private:
     std::shared_ptr<tenann::IndexMeta> _index_meta;
 #endif
 
-    bool _always_build_rowid() const { return (_use_vector_index && !_use_ivfpq) || _bm25_score_requested; }
+    // Build rowids only when a score column is actually materialized (>= 0); the
+    // [min,max] gate filters via the inverted-index seek and needs no rowid, so
+    // count(*) / filter-only queries (column id -1) don't build rowids.
+    bool _bm25_score_materialized() const { return _bm25_score_requested && _bm25_score_column_id >= 0; }
+    bool _always_build_rowid() const { return (_use_vector_index && !_use_ivfpq) || _bm25_score_materialized(); }
 
     bool _use_vector_index;
     std::string _vector_distance_column_name;
@@ -410,9 +414,14 @@ private:
     // (segment-local row id -> score) is captured in _apply_inverted_index and
     // materialized into the synthetic score output column in _do_get_next.
     bool _bm25_score_requested = false;
-    int _bm25_score_column_id = 0;
+    // -1 = score column not in scan output (count(*)/filter-only); gate still filters.
+    int _bm25_score_column_id = -1;
     SlotId _bm25_score_slot_id = 0;
     int32_t _bm25_score_limit = 0;
+    // BM25 score(): inclusive [min, max] gate for a `WHERE score() > c` predicate,
+    // pushed into the scored GIN query; -/+INFINITY = unbounded.
+    float _bm25_score_min = -std::numeric_limits<float>::infinity();
+    float _bm25_score_max = std::numeric_limits<float>::infinity();
     std::string _bm25_score_column_name;
     std::unordered_map<rowid_t, float> _bm25_score_map;
 
@@ -458,6 +467,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, Schema schema
         _bm25_score_slot_id = _opts.bm25_score_slot_id;
         _bm25_score_column_name = _opts.bm25_score_column_name;
         _bm25_score_limit = _opts.bm25_score_limit;
+        _bm25_score_min = _opts.bm25_score_min;
+        _bm25_score_max = _opts.bm25_score_max;
     }
     // For small segment file (the number of rows is less than chunk_size),
     // the segment iterator will reserve a large amount of memory,
@@ -1618,7 +1629,7 @@ Status SegmentIterator::_do_get_next(Chunk* result, vector<rowid_t>* rowid) {
         chunk->append_vector_column(std::move(distance_column), _make_field(_vector_column_id), _vector_slot_id);
     }
 
-    if (_bm25_score_requested) {
+    if (_bm25_score_materialized()) {
         DCHECK(rowid != nullptr);
         FloatColumn::MutablePtr score_column = FloatColumn::create();
         for (const auto& rid : *rowid) {
@@ -2381,6 +2392,8 @@ Status SegmentIterator::_apply_inverted_index() {
             // Push the SQL LIMIT into the scored GIN query so tantivy returns only
             // the top-k rows (see InvertedIndexIterator::set_bm25_topk_limit).
             _inverted_index_iterators[cid]->set_bm25_topk_limit(_bm25_score_limit);
+            // Push the WHERE score() >/< c threshold so tantivy gates hits by score.
+            _inverted_index_iterators[cid]->set_bm25_score_range(_bm25_score_min, _bm25_score_max);
         }
         for (const ColumnPredicate* pred : pred_list) {
             if (_inverted_index_iterators[cid]->is_untokenized() || pred->type() == PredicateType::kExpr) {

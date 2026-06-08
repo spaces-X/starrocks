@@ -88,13 +88,27 @@ Status OlapChunkSource::prepare(RuntimeState* state) {
         _vector_slot_id = vector_search_options.vector_slot_id;
         _params.vector_search_option = std::make_shared<VectorSearchOption>();
     }
-    // BM25 score(): presence of bm25_score_slot_id enables scoring mode.
-    _use_bm25_score = thrift_olap_scan_node.__isset.bm25_score_slot_id;
-    if (_use_bm25_score) {
-        _bm25_score_slot_id = thrift_olap_scan_node.bm25_score_slot_id;
-        // LIMIT pushdown for top-k scoring; absent / <=0 means score every hit.
-        _bm25_score_limit =
-                thrift_olap_scan_node.__isset.bm25_score_limit ? thrift_olap_scan_node.bm25_score_limit : 0;
+    // BM25 score(): run the scored seek when a score slot (materialize score()) OR
+    // a min/max gate (WHERE score()>c, no score output) is present. slot_id < 0
+    // means gate-only: narrow the bitmap, do not materialize a score column.
+    {
+        bool has_gate =
+                thrift_olap_scan_node.__isset.bm25_score_min || thrift_olap_scan_node.__isset.bm25_score_max;
+        _use_bm25_score = thrift_olap_scan_node.__isset.bm25_score_slot_id || has_gate;
+        if (_use_bm25_score) {
+            _bm25_score_slot_id =
+                    thrift_olap_scan_node.__isset.bm25_score_slot_id ? thrift_olap_scan_node.bm25_score_slot_id : -1;
+            // LIMIT pushdown for top-k scoring; absent / <=0 means score every hit.
+            _bm25_score_limit =
+                    thrift_olap_scan_node.__isset.bm25_score_limit ? thrift_olap_scan_node.bm25_score_limit : 0;
+            // [min, max] score gate for a `WHERE score() > c` predicate; absent = unbounded.
+            if (thrift_olap_scan_node.__isset.bm25_score_min) {
+                _bm25_score_min = static_cast<float>(thrift_olap_scan_node.bm25_score_min);
+            }
+            if (thrift_olap_scan_node.__isset.bm25_score_max) {
+                _bm25_score_max = static_cast<float>(thrift_olap_scan_node.bm25_score_max);
+            }
+        }
     }
     const TupleDescriptor* tuple_desc = state->desc_tbl().get_tuple_descriptor(thrift_olap_scan_node.tuple_id);
     _slots = &tuple_desc->slots();
@@ -271,6 +285,8 @@ Status OlapChunkSource::_init_reader_params(const std::vector<std::unique_ptr<Ol
     _params.use_vector_index = _use_vector_index;
     _params.use_bm25_score = _use_bm25_score;
     _params.bm25_score_limit = _bm25_score_limit;
+    _params.bm25_score_min = _bm25_score_min;
+    _params.bm25_score_max = _bm25_score_max;
     if (_use_vector_index) {
         const TVectorSearchOptions& vector_options = thrift_olap_scan_node.vector_search_options;
 
@@ -360,7 +376,7 @@ Status OlapChunkSource::_init_scanner_columns(std::vector<uint32_t>& scanner_col
             index = _tablet_schema->num_columns();
             _params.vector_search_option->vector_column_id = index;
             _params.vector_search_option->vector_slot_id = slot->id();
-        } else if (_use_bm25_score && slot->id() == _bm25_score_slot_id) {
+        } else if (_use_bm25_score && _bm25_score_slot_id >= 0 && slot->id() == _bm25_score_slot_id) {
             // BM25 score(): synthetic FLOAT column past the real columns; storage
             // skips it on read, SegmentIterator fills it from the score map.
             index = _tablet_schema->num_columns();

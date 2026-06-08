@@ -639,6 +639,10 @@ struct TOlapScanNode {
   // BM25 score(): SQL LIMIT(+OFFSET) pushed into the scored GIN query so tantivy
   // returns only the top-k rows by score; absent / <=0 scores every matched row.
   43: optional i32 bm25_score_limit
+  // BM25 score(): inclusive [min, max] score gate for a `WHERE score() > c`
+  // predicate, pushed into the scored GIN query; absent = unbounded that end.
+  44: optional double bm25_score_min
+  45: optional double bm25_score_max
 
   //back pressure
   50: optional bool enable_topn_filter_back_pressure
@@ -693,6 +697,8 @@ struct TLakeScanNode {
   // BM25 score(): same semantics as TOlapScanNode (shared-data / cloud-native path).
   45: optional i32 bm25_score_slot_id
   46: optional i32 bm25_score_limit
+  47: optional double bm25_score_min
+  48: optional double bm25_score_max
 }
 
 struct TEqJoinCondition {

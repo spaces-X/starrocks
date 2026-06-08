@@ -208,6 +208,8 @@ StatusOr<std::vector<ChunkIteratorPtr>> Rowset::read(const Schema& schema, const
     seg_options.bm25_score_column_id = options.bm25_score_column_id;
     seg_options.bm25_score_column_name = options.bm25_score_column_name;
     seg_options.bm25_score_limit = options.bm25_score_limit;
+    seg_options.bm25_score_min = options.bm25_score_min;
+    seg_options.bm25_score_max = options.bm25_score_max;
     if (options.is_primary_keys) {
         seg_options.is_primary_keys = true;
         seg_options.delvec_loader = std::make_shared<LakeDelvecLoader>(

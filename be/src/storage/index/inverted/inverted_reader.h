@@ -50,9 +50,11 @@ public:
     // column. Default: not supported (only the tantivy reader overrides it).
     // `limit > 0` pushes the SQL LIMIT into the index so only the top-`limit`
     // rows by score are returned; `limit <= 0` scores every matched row.
+    // `min_score`/`max_score` gate hits to the inclusive [min, max] BM25 range
+    // inside the index (backing `WHERE score() > c`); -/+INFINITY = unbounded.
     virtual Status query_scored(OlapReaderStatistics* stats, const std::string& column_name, const void* query_value,
-                                InvertedIndexQueryType query_type, int32_t limit, roaring::Roaring* bit_map,
-                                std::unordered_map<uint32_t, float>* row_to_score) {
+                                InvertedIndexQueryType query_type, int32_t limit, float min_score, float max_score,
+                                roaring::Roaring* bit_map, std::unordered_map<uint32_t, float>* row_to_score) {
         return Status::NotSupported("scored inverted-index query not supported by this implementation");
     }
 

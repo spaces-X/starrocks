@@ -53,8 +53,8 @@ public:
                  InvertedIndexQueryType query_type, roaring::Roaring* bit_map) override;
 
     Status query_scored(OlapReaderStatistics* stats, const std::string& column_name, const void* query_value,
-                        InvertedIndexQueryType query_type, int32_t limit, roaring::Roaring* bit_map,
-                        std::unordered_map<uint32_t, float>* row_to_score) override;
+                        InvertedIndexQueryType query_type, int32_t limit, float min_score, float max_score,
+                        roaring::Roaring* bit_map, std::unordered_map<uint32_t, float>* row_to_score) override;
 
     Status query_null(OlapReaderStatistics* stats, const std::string& column_name,
                       roaring::Roaring* bit_map) override;
@@ -72,7 +72,7 @@ private:
     // Scored dispatch: runs a BM25-scoring tantivy query (MATCH_ANY/MATCH_ALL),
     // fills `bit_map` with matched rows AND `row_to_score` with their scores.
     Status _query_impl_scored(void* reader_handle, const void* query_value, InvertedIndexQueryType query_type,
-                              int32_t limit, roaring::Roaring* bit_map,
+                              int32_t limit, float min_score, float max_score, roaring::Roaring* bit_map,
                               std::unordered_map<uint32_t, float>* row_to_score);
 
     std::string _field_name;

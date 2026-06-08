@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <limits>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -100,8 +101,11 @@ public:
     // BM25 score(): see TabletReaderParams. Synthetic score output column.
     bool use_bm25_score = false;
     int32_t bm25_score_slot_id = 0;
-    int32_t bm25_score_column_id = 0;
+    int32_t bm25_score_column_id = -1;
     int32_t bm25_score_limit = 0;
+    // Inclusive [min, max] BM25 score gate for `WHERE score() > c`; -/+INFINITY = unbounded.
+    float bm25_score_min = -std::numeric_limits<float>::infinity();
+    float bm25_score_max = std::numeric_limits<float>::infinity();
     std::string bm25_score_column_name;
 
     TTableSampleOptions sample_options;
