@@ -138,7 +138,16 @@ impl IndexReaderWrapper {
     /// b=0.75); the index already stores freqs+positions (see index_writer.rs).
     /// `limit > 0` prunes to the top-`limit` hits by score inside tantivy
     /// (see `collect_doc_ids_scored`); `limit == 0` returns every hit.
-    pub fn match_any_query_scored(&self, terms: &[&str], limit: usize) -> Result<Vec<(u32, f32)>> {
+    /// `min_score`/`max_score` gate hits to the inclusive `[min, max]` score
+    /// range at collect time (`NEG_INFINITY`/`INFINITY` = no bound), backing a
+    /// `WHERE score() > c` predicate without materializing out-of-range rows.
+    pub fn match_any_query_scored(
+        &self,
+        terms: &[&str],
+        limit: usize,
+        min_score: f32,
+        max_score: f32,
+    ) -> Result<Vec<(u32, f32)>> {
         let subqueries: Vec<(Occur, Box<dyn Query>)> = terms
             .iter()
             .map(|t| {
@@ -148,11 +157,17 @@ impl IndexReaderWrapper {
             })
             .collect();
         let bq = BooleanQuery::new(subqueries);
-        self.collect_doc_ids_scored(&bq, limit)
+        self.collect_doc_ids_scored(&bq, limit, min_score, max_score)
     }
 
     /// MATCH_ALL with BM25 relevance scores: returns `(row_id, score)` per hit.
-    pub fn match_all_query_scored(&self, terms: &[&str], limit: usize) -> Result<Vec<(u32, f32)>> {
+    pub fn match_all_query_scored(
+        &self,
+        terms: &[&str],
+        limit: usize,
+        min_score: f32,
+        max_score: f32,
+    ) -> Result<Vec<(u32, f32)>> {
         let subqueries: Vec<(Occur, Box<dyn Query>)> = terms
             .iter()
             .map(|t| {
@@ -162,7 +177,7 @@ impl IndexReaderWrapper {
             })
             .collect();
         let bq = BooleanQuery::new(subqueries);
-        self.collect_doc_ids_scored(&bq, limit)
+        self.collect_doc_ids_scored(&bq, limit, min_score, max_score)
     }
 
     /// MATCH_PHRASE: ordered terms with at most `slop` positional gaps.
@@ -196,10 +211,23 @@ impl IndexReaderWrapper {
     /// the LIMIT into tantivy's `TopDocs`, which prunes to the best `limit` hits
     /// per segment (WAND/block-max) instead of scoring the full posting list —
     /// mirroring the vector ANN top-k path so cost is O(limit) not O(hits).
-    fn collect_doc_ids_scored(&self, query: &dyn Query, limit: usize) -> Result<Vec<(u32, f32)>> {
+    ///
+    /// `min_score`/`max_score` keep only hits with `min <= score <= max`
+    /// (`NEG_INFINITY`/`INFINITY` = unbounded). On the `limit == 0` path the
+    /// gate runs inside the collector (out-of-range hits never allocate a
+    /// row_id); on the top-k path it filters the returned hits — correct
+    /// because `ORDER BY score() DESC LIMIT n WHERE score()>c` wants the top-n
+    /// that also pass the threshold, and the top-n by score subsumes them.
+    fn collect_doc_ids_scored(
+        &self,
+        query: &dyn Query,
+        limit: usize,
+        min_score: f32,
+        max_score: f32,
+    ) -> Result<Vec<(u32, f32)>> {
         let searcher = self.reader.searcher();
         if limit == 0 {
-            return Ok(searcher.search(query, &RowIdScoreCollector)?);
+            return Ok(searcher.search(query, &RowIdScoreCollector { min_score, max_score })?);
         }
         let top = searcher.search(query, &TopDocs::with_limit(limit))?;
         let mut out = Vec::with_capacity(top.len());
@@ -207,6 +235,9 @@ impl IndexReaderWrapper {
         // loosely by segment, so this avoids re-opening the column per hit.
         let mut cur: Option<(SegmentOrdinal, Column<u64>)> = None;
         for (score, addr) in top {
+            if score < min_score || score > max_score {
+                continue;
+            }
             if cur.as_ref().map(|(ord, _)| *ord != addr.segment_ord).unwrap_or(true) {
                 let ff = searcher.segment_reader(addr.segment_ord).fast_fields().u64("row_id")?;
                 cur = Some((addr.segment_ord, ff));
@@ -337,11 +368,19 @@ pub(crate) fn like_pattern_to_regex(pattern: &str) -> Option<String> {
 // keeps the per-hit score next to the BE row id. Reuses the same `row_id`
 // fast-field resolution so (row_id, score) stays correctly paired across tantivy
 // segments. This is the core BM25 mechanism for a native `score()` function.
-struct RowIdScoreCollector;
+// `min_score`/`max_score` gate hits to `[min, max]` at collect time so a
+// `WHERE score() > c` predicate prunes inside tantivy (no row_id lookup for
+// out-of-range hits); unbounded ends are `NEG_INFINITY`/`INFINITY`.
+struct RowIdScoreCollector {
+    min_score: f32,
+    max_score: f32,
+}
 
 struct RowIdScoreSegmentCollector {
     row_id: Column<u64>,
     hits: Vec<(u32, f32)>,
+    min_score: f32,
+    max_score: f32,
 }
 
 impl Collector for RowIdScoreCollector {
@@ -349,7 +388,12 @@ impl Collector for RowIdScoreCollector {
     type Child = RowIdScoreSegmentCollector;
 
     fn for_segment(&self, _ord: SegmentOrdinal, seg: &SegmentReader) -> tantivy::Result<RowIdScoreSegmentCollector> {
-        Ok(RowIdScoreSegmentCollector { row_id: seg.fast_fields().u64("row_id")?, hits: Vec::new() })
+        Ok(RowIdScoreSegmentCollector {
+            row_id: seg.fast_fields().u64("row_id")?,
+            hits: Vec::new(),
+            min_score: self.min_score,
+            max_score: self.max_score,
+        })
     }
 
     fn requires_scoring(&self) -> bool {
@@ -365,6 +409,9 @@ impl SegmentCollector for RowIdScoreSegmentCollector {
     type Fruit = Vec<(u32, f32)>;
 
     fn collect(&mut self, doc: u32, score: Score) {
+        if score < self.min_score || score > self.max_score {
+            return;
+        }
         if let Some(rid) = self.row_id.values_for_doc(doc).next() {
             self.hits.push((rid as u32, score));
         }

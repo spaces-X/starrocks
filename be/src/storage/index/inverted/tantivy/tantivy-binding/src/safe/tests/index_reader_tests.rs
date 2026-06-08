@@ -252,7 +252,7 @@ fn score_ranks_by_tf_and_length() {
         "gif",               // 3: TF=1, shortest
     ]);
     let r = IndexReaderWrapper::load(tmp.path(), "f", "english").expect("load");
-    let mut hits = r.match_any_query_scored(&["gif"], 0).expect("scored query");
+    let mut hits = r.match_any_query_scored(&["gif"], 0, f32::NEG_INFINITY, f32::INFINITY).expect("scored query");
     // only the 3 docs containing 'gif' come back
     let rows: std::collections::BTreeSet<u32> = hits.iter().map(|(rid, _)| *rid).collect();
     assert_eq!(rows, [0u32, 1, 3].into_iter().collect(), "matched rows: {hits:?}");
@@ -274,8 +274,8 @@ fn score_rarer_term_scores_higher_idf() {
     // hits). This isolates IDF: same doc length, only term rarity differs.
     let tmp = build(&["gif", "gif", "gif", "png"]);
     let r = IndexReaderWrapper::load(tmp.path(), "f", "english").expect("load");
-    let common = r.match_any_query_scored(&["gif"], 0).expect("q");
-    let rare = r.match_any_query_scored(&["png"], 0).expect("q");
+    let common = r.match_any_query_scored(&["gif"], 0, f32::NEG_INFINITY, f32::INFINITY).expect("q");
+    let rare = r.match_any_query_scored(&["png"], 0, f32::NEG_INFINITY, f32::INFINITY).expect("q");
     assert_eq!(common.len(), 3, "gif in 3 docs: {common:?}");
     assert_eq!(rare.len(), 1, "png in 1 doc: {rare:?}");
     // rarer term → higher IDF → higher BM25
@@ -296,12 +296,42 @@ fn score_topk_pushdown_limits_hits() {
         "gif",              // 3: TF=1
     ]);
     let r = IndexReaderWrapper::load(tmp.path(), "f", "english").expect("load");
-    let mut top = r.match_any_query_scored(&["gif"], 2).expect("top-k query");
+    let mut top = r.match_any_query_scored(&["gif"], 2, f32::NEG_INFINITY, f32::INFINITY).expect("top-k query");
     assert_eq!(top.len(), 2, "limit=2 returns exactly 2 rows: {top:?}");
     top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     let rows: Vec<u32> = top.iter().map(|(rid, _)| *rid).collect();
     assert_eq!(rows, vec![0u32, 1], "top-2 by score are the two highest-TF docs: {top:?}");
     // limit=0 still returns the full posting list (all 4 hits).
-    let full = r.match_any_query_scored(&["gif"], 0).expect("full query");
+    let full = r.match_any_query_scored(&["gif"], 0, f32::NEG_INFINITY, f32::INFINITY).expect("full query");
     assert_eq!(full.len(), 4, "limit=0 keeps every hit: {full:?}");
+}
+
+#[test]
+fn score_min_max_gate_filters_hits() {
+    // 4 docs with decreasing TF for 'gif' → strictly decreasing BM25 scores.
+    // A min/max score gate must keep only hits whose score is in [min, max].
+    let tmp = build(&[
+        "gif gif gif gif", // 0: TF=4, highest score
+        "gif gif gif",      // 1: TF=3
+        "gif gif",          // 2: TF=2
+        "gif",              // 3: TF=1, lowest score
+    ]);
+    let r = IndexReaderWrapper::load(tmp.path(), "f", "english").expect("load");
+    let mut all = r.match_any_query_scored(&["gif"], 0, f32::NEG_INFINITY, f32::INFINITY).expect("all");
+    all.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap()); // score desc: doc0..doc3
+    // Pick a threshold strictly between doc 1's and doc 2's score.
+    let cut = (all[1].1 + all[2].1) / 2.0;
+    // min gate (collector path, limit=0): only docs 0 and 1 survive.
+    let hi = r.match_any_query_scored(&["gif"], 0, cut, f32::INFINITY).expect("min gate");
+    let hi_rows: std::collections::BTreeSet<u32> = hi.iter().map(|(rid, _)| *rid).collect();
+    assert_eq!(hi_rows, [0u32, 1].into_iter().collect(), "min gate keeps top-2: {hi:?}");
+    assert!(hi.iter().all(|(_, s)| *s >= cut), "all >= min: {hi:?}");
+    // max gate: only docs 2 and 3 survive.
+    let lo = r.match_any_query_scored(&["gif"], 0, f32::NEG_INFINITY, cut).expect("max gate");
+    let lo_rows: std::collections::BTreeSet<u32> = lo.iter().map(|(rid, _)| *rid).collect();
+    assert_eq!(lo_rows, [2u32, 3].into_iter().collect(), "max gate keeps bottom-2: {lo:?}");
+    // min gate on the top-k path (limit>0) prunes the same way.
+    let hi_topk = r.match_any_query_scored(&["gif"], 10, cut, f32::INFINITY).expect("topk min gate");
+    let hi_topk_rows: std::collections::BTreeSet<u32> = hi_topk.iter().map(|(rid, _)| *rid).collect();
+    assert_eq!(hi_topk_rows, [0u32, 1].into_iter().collect(), "top-k min gate keeps top-2: {hi_topk:?}");
 }

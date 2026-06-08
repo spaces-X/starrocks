@@ -311,6 +311,10 @@ pub unsafe extern "C" fn tantivy_match_all_query(
 /// `limit > 0` pushes the SQL LIMIT into tantivy so only the top-`limit` hits by
 /// score are returned (per segment); `limit == 0` returns every hit.
 ///
+/// `min_score`/`max_score` gate hits to the inclusive `[min, max]` BM25 range
+/// (backing a `WHERE score() > c` predicate); pass `-INFINITY`/`+INFINITY` for
+/// an unbounded end.
+///
 /// SAFETY: `reader`, `out_ids`, `out_scores` non-NULL; `terms` is a `count`-
 /// array of FFISlice (or `count == 0`).
 #[no_mangle]
@@ -319,12 +323,14 @@ pub unsafe extern "C" fn tantivy_match_query_scored(
     terms: *const FFISlice,
     count: usize,
     limit: u64,
+    min_score: f32,
+    max_score: f32,
     out_ids: *mut RustU32Array,
     out_scores: *mut RustF32Array,
 ) -> RustResult {
     catch_ffi(|| {
         with_scored_query_terms(reader, terms, count, out_ids, out_scores, |r, t| {
-            r.match_any_query_scored(t, limit as usize)
+            r.match_any_query_scored(t, limit as usize, min_score, max_score)
         })
     })
 }
@@ -339,12 +345,14 @@ pub unsafe extern "C" fn tantivy_match_all_query_scored(
     terms: *const FFISlice,
     count: usize,
     limit: u64,
+    min_score: f32,
+    max_score: f32,
     out_ids: *mut RustU32Array,
     out_scores: *mut RustF32Array,
 ) -> RustResult {
     catch_ffi(|| {
         with_scored_query_terms(reader, terms, count, out_ids, out_scores, |r, t| {
-            r.match_all_query_scored(t, limit as usize)
+            r.match_all_query_scored(t, limit as usize, min_score, max_score)
         })
     })
 }
